@@ -1,6 +1,5 @@
 import { NEXRAD_STATIONS } from "./nexrad-stations.js";
 import {
-  MAPBOX_TOKEN,
   INITIAL_VIEW,
   FRAME_COUNT,
   FRAME_INTERVAL_MIN,
@@ -9,18 +8,27 @@ import {
   RADAR_OPACITY,
 } from "./config.js";
 
-mapboxgl.accessToken = MAPBOX_TOKEN;
+// ───────── Map ─────────
+const map = L.map("map", {
+  zoomControl: false,
+  zoomSnap: 0.25,
+  zoomDelta: 0.5,
+  wheelPxPerZoomLevel: 80,
+  worldCopyJump: true,
+}).setView(INITIAL_VIEW.center, INITIAL_VIEW.zoom);
 
-const map = new mapboxgl.Map({
-  container: "map",
-  style: "mapbox://styles/mapbox/dark-v11",
-  center: INITIAL_VIEW.center,
-  zoom: INITIAL_VIEW.zoom,
-  attributionControl: false,
-  hash: true,
-});
-map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-right");
-map.addControl(new mapboxgl.AttributionControl({ compact: true }));
+L.control.zoom({ position: "bottomright" }).addTo(map);
+
+L.tileLayer(
+  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+  {
+    subdomains: "abcd",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 19,
+    zIndex: 100,
+  }
+).addTo(map);
 
 // ───────── Radar frame URLs ─────────
 // Iowa Environmental Mesonet hosts MRMS NEXRAD reflectivity tiles in EPSG:3857.
@@ -54,81 +62,48 @@ function buildFrames() {
 }
 
 let frames = buildFrames();
+let radarLayers = [];
 let currentIdx = frames.length - 1;
 let isPlaying = true;
 let playTimer = null;
 
-// ───────── Map setup ─────────
-map.on("load", () => {
-  // Add a raster layer per frame; toggle visibility via opacity for instant flips.
-  frames.forEach((f, i) => {
-    const id = `radar-${i}`;
-    map.addSource(id, { type: "raster", tiles: [f.url], tileSize: 256, attribution: "NEXRAD via Iowa Environmental Mesonet" });
-    map.addLayer({
-      id,
-      type: "raster",
-      source: id,
-      paint: {
-        "raster-opacity": i === currentIdx ? RADAR_OPACITY : 0,
-        "raster-opacity-transition": { duration: 0 },
-        "raster-fade-duration": 0,
-      },
-    });
-  });
+function addRadarLayers() {
+  radarLayers = frames.map((f, i) =>
+    L.tileLayer(f.url, {
+      opacity: i === currentIdx ? RADAR_OPACITY : 0,
+      tileSize: 256,
+      zIndex: 200,
+      attribution: 'NEXRAD via <a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>',
+    }).addTo(map)
+  );
+}
+addRadarLayers();
 
-  // Warning layers: tornado, severe t-storm, flash flood (fill + outline).
-  for (const k of ["tor", "svr", "ffw"]) {
-    map.addSource(`warn-${k}`, { type: "geojson", data: emptyFC() });
-    map.addLayer({
-      id: `warn-${k}-fill`,
-      type: "fill",
-      source: `warn-${k}`,
-      paint: {
-        "fill-color": warnColor(k),
-        "fill-opacity": k === "tor" ? 0.18 : 0.1,
-      },
-    });
-    map.addLayer({
-      id: `warn-${k}-line`,
-      type: "line",
-      source: `warn-${k}`,
-      paint: {
-        "line-color": warnColor(k),
-        "line-width": k === "tor" ? 2.4 : 1.8,
-      },
-    });
-    map.on("click", `warn-${k}-fill`, (e) => showWarningCard(e.features[0]));
-    map.on("mouseenter", `warn-${k}-fill`, () => (map.getCanvas().style.cursor = "pointer"));
-    map.on("mouseleave", `warn-${k}-fill`, () => (map.getCanvas().style.cursor = ""));
-  }
+// ───────── Warning layers ─────────
+const warnColors = { tor: "#ff2424", svr: "#ffd000", ffw: "#19c45a" };
+const warnLayers = {};
+for (const k of ["tor", "svr", "ffw"]) {
+  warnLayers[k] = L.geoJSON(null, {
+    style: () => ({
+      color: warnColors[k],
+      weight: k === "tor" ? 2.4 : 1.8,
+      fillColor: warnColors[k],
+      fillOpacity: k === "tor" ? 0.18 : 0.1,
+    }),
+    onEachFeature: (feature, layer) => {
+      layer.on("click", () => showWarningCard(feature));
+    },
+  }).addTo(map);
+  // Leaflet GeoJSON layer doesn't take zIndex directly; pane it.
+  warnLayers[k].setZIndex && warnLayers[k].setZIndex(400);
+}
 
-  // Build timeline UI
-  buildTimelineUI();
-
-  // Kick off playback + alerts polling
-  startPlayback();
-  fetchAlerts();
-  setInterval(fetchAlerts, 60_000);
-
-  // Refresh the radar frame list every 5 min so the loop keeps sliding.
-  setInterval(refreshFrames, 5 * 60_000);
-
-  // HUD
-  updateHud();
-  map.on("move", updateHudLight);
-  map.on("moveend", updateRegion);
-  updateRegion();
-});
-
-function emptyFC() { return { type: "FeatureCollection", features: [] }; }
-function warnColor(k) { return k === "tor" ? "#ff2424" : k === "svr" ? "#ffd000" : "#19c45a"; }
-
-// ───────── Frame playback ─────────
+// ───────── Animation ─────────
 function setFrame(i) {
   const prev = currentIdx;
   currentIdx = i;
-  if (map.getLayer(`radar-${prev}`)) map.setPaintProperty(`radar-${prev}`, "raster-opacity", 0);
-  if (map.getLayer(`radar-${i}`)) map.setPaintProperty(`radar-${i}`, "raster-opacity", RADAR_OPACITY);
+  if (radarLayers[prev]) radarLayers[prev].setOpacity(0);
+  if (radarLayers[i]) radarLayers[i].setOpacity(RADAR_OPACITY);
   document.getElementById("timeline").value = String(i);
   updateHud();
 }
@@ -147,23 +122,10 @@ function stopPlayback() { if (playTimer) { clearTimeout(playTimer); playTimer = 
 
 function refreshFrames() {
   const fresh = buildFrames();
-  // If newest frame timestamp matches existing newest, skip.
   if (fresh[fresh.length - 1].time.getTime() === frames[frames.length - 1].time.getTime()) return;
-  // Replace sources/layers in place.
-  frames.forEach((_, i) => {
-    if (map.getLayer(`radar-${i}`)) map.removeLayer(`radar-${i}`);
-    if (map.getSource(`radar-${i}`)) map.removeSource(`radar-${i}`);
-  });
+  radarLayers.forEach((l) => map.removeLayer(l));
   frames = fresh;
-  // Insert beneath warning fills so polygons stay on top.
-  const beforeId = map.getLayer("warn-tor-fill") ? "warn-tor-fill" : undefined;
-  frames.forEach((f, i) => {
-    map.addSource(`radar-${i}`, { type: "raster", tiles: [f.url], tileSize: 256 });
-    map.addLayer({
-      id: `radar-${i}`, type: "raster", source: `radar-${i}`,
-      paint: { "raster-opacity": 0, "raster-fade-duration": 0 },
-    }, beforeId);
-  });
+  addRadarLayers();
   currentIdx = frames.length - 1;
   setFrame(currentIdx);
   buildTimelineUI();
@@ -188,17 +150,13 @@ function buildTimelineUI() {
 
 // ───────── HUD ─────────
 const tzShort = (() => {
-  // Best-effort short tz like "CT" / "ET" based on user's locale.
   const parts = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(new Date());
   const tz = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
-  // Compress "CDT"/"CST" to "CT" etc.
   return tz.replace(/([CEMP])[DS]T/, "$1T");
 })();
-
 function fmtTime(d) {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }) + " " + tzShort;
 }
-
 function updateHud() {
   document.getElementById("hud-frame").textContent = fmtTime(frames[currentIdx].time);
   document.getElementById("hud-latest").textContent = fmtTime(frames[frames.length - 1].time);
@@ -227,23 +185,32 @@ function haversine(la1, lo1, la2, lo2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-let regionAbort = null;
-async function updateRegion() {
+// ───────── Region (Nominatim reverse geocoding) ─────────
+const regionCache = new Map();
+let regionTimer = null;
+function updateRegion() {
   const c = map.getCenter();
-  // Mapbox reverse geocoding; cheap and uses the same token.
-  if (regionAbort) regionAbort.abort();
-  regionAbort = new AbortController();
-  try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${c.lng},${c.lat}.json` +
-      `?types=region,country&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
-    const r = await fetch(url, { signal: regionAbort.signal });
-    if (!r.ok) return;
-    const j = await r.json();
-    const region = j.features?.find((f) => f.place_type?.includes("region"));
-    const country = j.features?.find((f) => f.place_type?.includes("country"));
-    const text = region?.text || country?.text || "—";
-    document.getElementById("hud-region").textContent = text;
-  } catch (_) { /* ignore */ }
+  const key = `${c.lat.toFixed(1)},${c.lng.toFixed(1)}`;
+  if (regionCache.has(key)) {
+    document.getElementById("hud-region").textContent = regionCache.get(key);
+    return;
+  }
+  if (regionTimer) clearTimeout(regionTimer);
+  regionTimer = setTimeout(async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&zoom=5&lat=${c.lat}&lon=${c.lng}`;
+      const r = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!r.ok) return;
+      const j = await r.json();
+      const text =
+        j.address?.state ||
+        j.address?.region ||
+        j.address?.country ||
+        "—";
+      regionCache.set(key, text);
+      document.getElementById("hud-region").textContent = text;
+    } catch (_) { /* ignore */ }
+  }, 600);
 }
 
 // ───────── NWS active alerts ─────────
@@ -254,14 +221,12 @@ const ALERT_EVENTS = [
   "Tornado Watch",
   "Severe Thunderstorm Watch",
 ];
-
 function bucket(event) {
   if (event.startsWith("Tornado")) return "tor";
   if (event.startsWith("Severe Thunderstorm")) return "svr";
   if (event.startsWith("Flash Flood")) return "ffw";
   return null;
 }
-
 async function fetchAlerts() {
   try {
     const events = ALERT_EVENTS.map(encodeURIComponent).join(",");
@@ -279,8 +244,8 @@ async function fetchAlerts() {
       if ((f.properties?.event || "").endsWith("Warning")) warningCount++;
     }
     for (const k of ["tor", "svr", "ffw"]) {
-      const src = map.getSource(`warn-${k}`);
-      if (src) src.setData({ type: "FeatureCollection", features: groups[k] });
+      warnLayers[k].clearLayers();
+      warnLayers[k].addData({ type: "FeatureCollection", features: groups[k] });
     }
     const badge = document.getElementById("alert-badge");
     if (warningCount > 0) {
@@ -336,9 +301,9 @@ function warningHazard(p) {
   const bits = [];
   if (ev.startsWith("Tornado")) {
     bits.push("TORNADO");
-    if (hail && hail !== "0.00") bits.push(`${hail.toUpperCase().includes("IN") ? hail : hail + " IN"} HAIL`);
+    if (hail && hail !== "0.00") bits.push(`${String(hail).toUpperCase().includes("IN") ? hail : hail + " IN"} HAIL`);
   } else if (ev.startsWith("Severe Thunderstorm")) {
-    if (wind) bits.push(`${wind.toUpperCase()} WIND`);
+    if (wind) bits.push(`${String(wind).toUpperCase()} WIND`);
     if (hail) bits.push(`${hail} HAIL`);
     if (!bits.length) bits.push("DAMAGING WINDS & LARGE HAIL");
   } else if (ev.startsWith("Flash Flood")) {
@@ -358,7 +323,13 @@ function warningExpires(p) {
   return `${h}H ${m}M FROM NOW`;
 }
 
-// Soft warning if the token wasn't replaced — map will fail silently otherwise.
-if (!MAPBOX_TOKEN || MAPBOX_TOKEN.includes("REPLACE_WITH_YOUR")) {
-  console.warn("Mapbox token not set. Edit config.js and add your public token from https://account.mapbox.com");
-}
+// ───────── Wire-up ─────────
+buildTimelineUI();
+startPlayback();
+fetchAlerts();
+setInterval(fetchAlerts, 60_000);
+setInterval(refreshFrames, 5 * 60_000);
+updateHud();
+updateRegion();
+map.on("move", updateHudLight);
+map.on("moveend", updateRegion);

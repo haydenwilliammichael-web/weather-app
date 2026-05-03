@@ -91,9 +91,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .lg-svr { background: var(--svr); }
 .lg-ffw { background: var(--ffw); }
 
-.mapboxgl-ctrl-bottom-right { bottom: 64px !important; }
-.mapboxgl-ctrl-attrib { background: rgba(8,10,14,0.6) !important; color: #aab !important; }
-.mapboxgl-ctrl-attrib a { color: #cde !important; }
+.leaflet-container { background: #07090d; }
+.leaflet-container:focus { outline: none; }
+.leaflet-bottom.leaflet-right { bottom: 64px !important; }
+.leaflet-control-attribution {
+  background: rgba(8,10,14,0.7) !important;
+  color: #aab !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a { color: #cde !important; }
+.leaflet-bar a, .leaflet-bar a:hover {
+  background: var(--panel-2) !important;
+  color: var(--text) !important;
+  border-color: #2a3142 !important;
+}
+.leaflet-bar a:hover { background: #1f2737 !important; }
 
 @media (max-width: 720px) {
   .hud-cell { padding: 0 8px; }

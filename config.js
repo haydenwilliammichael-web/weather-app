@@ -1,11 +1,10 @@
-// Set your Mapbox public token here. Create one at https://account.mapbox.com
-// (The default below is a placeholder and will not render tiles.)
-export const MAPBOX_TOKEN = "pk.REPLACE_WITH_YOUR_MAPBOX_PUBLIC_TOKEN";
+// No API keys required — basemap is CartoDB Dark Matter (free), radar is
+// Iowa Environmental Mesonet (free), warnings are NWS api.weather.gov (free).
 
-// Optional: starting view
+// Starting view ([lat, lng] for Leaflet)
 export const INITIAL_VIEW = {
-  center: [-90.5, 32.4], // Mississippi (severe weather alley)
-  zoom: 6.2,
+  center: [32.4, -90.5], // Mississippi (severe weather alley)
+  zoom: 6.25,
 };
 
 // Radar animation
