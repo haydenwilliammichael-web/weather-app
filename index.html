@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>Live Severe Weather Radar</title>
+  <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <header id="hud">
+    <div class="hud-cell"><span class="hud-label">Current Frame</span><span id="hud-frame">--:--</span></div>
+    <div class="hud-cell"><span class="hud-label">Latest Scan</span><span id="hud-latest">--:--</span></div>
+    <div class="hud-cell"><span class="hud-label">Tower</span><span id="hud-tower">----</span></div>
+    <div class="hud-cell"><span class="hud-label">Zoom</span><span id="hud-zoom">--</span></div>
+    <div class="hud-cell"><span class="hud-label">Current Region</span><span id="hud-region">--</span></div>
+  </header>
+
+  <aside id="warning-card" hidden>
+    <div class="wc-header"><span id="wc-title">WARNING</span><button id="wc-close" aria-label="Close">Close</button></div>
+    <div class="wc-body">
+      <div class="wc-row"><span class="wc-key">SOURCE:</span><span id="wc-source"></span></div>
+      <div class="wc-row"><span class="wc-key">HAZARD:</span><span id="wc-hazard"></span></div>
+      <div class="wc-row"><span class="wc-key">AREAS:</span><span id="wc-areas"></span></div>
+      <div class="wc-row"><span class="wc-key">EXPIRES:</span><span id="wc-expires"></span></div>
+    </div>
+  </aside>
+
+  <div id="alert-badge" hidden><span id="alert-count">0</span> active warnings</div>
+
+  <footer id="controls">
+    <button id="play-toggle" aria-label="Play/Pause">⏸</button>
+    <input id="timeline" type="range" min="0" max="0" step="1" value="0" />
+    <span id="timeline-label">--:--</span>
+    <div id="legend">
+      <span class="lg dot lg-tor"></span>Tornado
+      <span class="lg dot lg-svr"></span>Severe T-Storm
+      <span class="lg dot lg-ffw"></span>Flash Flood
+    </div>
+  </footer>
+
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
